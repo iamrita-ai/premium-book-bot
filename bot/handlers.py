@@ -1,474 +1,486 @@
 import logging
-import asyncio
+import random
 from datetime import datetime
-from typing import Optional
 
-from telegram import Update, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
-)
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ContextTypes, CommandHandler, MessageHandler, filters, CallbackQueryHandler
 
 from config import Config
-from .database import DatabaseManager
-from .keyboards import KeyboardBuilder
-from .utils import ReactionManager, MessageFormatter, ProgressIndicator
+from .utils import format_message, create_keyboard, send_animated_message
 
 logger = logging.getLogger(__name__)
 
-class BotHandlers:
-    """Premium bot handlers with all features"""
+class PremiumHandlers:
+    """🎨 Premium Handlers with Beautiful UI"""
     
-    def __init__(self, db: DatabaseManager, reaction_manager: ReactionManager):
+    def __init__(self, db, reaction_manager):
         self.config = Config()
         self.db = db
         self.reaction_manager = reaction_manager
         self.active_searches = {}
+    
+    def register(self, app):
+        """Register all handlers"""
         
-    def register_handlers(self, app: Application):
-        """Register all bot handlers"""
-        
-        # Command handlers
+        # 🎯 BASIC COMMANDS
         app.add_handler(CommandHandler("start", self.start))
         app.add_handler(CommandHandler("help", self.help))
         app.add_handler(CommandHandler("books", self.search_books))
         app.add_handler(CommandHandler("search", self.search_books))
-        app.add_handler(CommandHandler("stats", self.stats))
         app.add_handler(CommandHandler("categories", self.categories))
+        app.add_handler(CommandHandler("stats", self.stats))
+        app.add_handler(CommandHandler("about", self.about))
         
-        # Admin commands
-        app.add_handler(CommandHandler("admin", self.admin_panel))
+        # 👑 ADMIN COMMANDS
+        app.add_handler(CommandHandler("admin", self.admin))
         app.add_handler(CommandHandler("addbook", self.add_book))
         app.add_handler(CommandHandler("broadcast", self.broadcast))
         app.add_handler(CommandHandler("lock", self.lock_bot))
         app.add_handler(CommandHandler("unlock", self.unlock_bot))
         
-        # Message handlers
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
-        app.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
-        
-        # Callback query handlers
+        # 💬 MESSAGE HANDLERS
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
         
-        logger.info("✅ Handlers registered successfully")
+        logger.info("✅ Premium handlers registered")
     
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command"""
+        """🎯 Premium Start Command with Beautiful UI"""
         user = update.effective_user
-        chat = update.effective_chat
         
-        # Add user to database
-        self.db.add_user(
-            user_id=user.id,
-            username=user.username,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            is_admin=(user.id == self.config.OWNER_ID)
-        )
-        
-        # Check force subscription
-        if self.config.FORCE_SUB_CHANNEL and chat.type == 'private':
-            try:
-                channel = self.config.FORCE_SUB_CHANNEL.lstrip('@')
-                member = await context.bot.get_chat_member(f"@{channel}", user.id)
-                if member.status not in ['member', 'administrator', 'creator']:
-                    keyboard = [[InlineKeyboardButton("Join Channel", url=f"https://t.me/{channel}")]]
-                    await update.message.reply_text(
-                        "📚 *Welcome to Premium Book Bot!*\n\n"
-                        "Please join our channel to access all features:\n"
-                        f"👉 @{channel}",
-                        reply_markup=InlineKeyboardMarkup(keyboard),
-                        parse_mode='Markdown'
-                    )
-                    return
-            except Exception as e:
-                logger.error(f"Subscription check error: {e}")
-        
-        # Send welcome message
-        welcome_text = f"""
-🌟 *Welcome {user.first_name}!* 🌟
+        # ✨ WELCOME MESSAGE WITH FORMATTING
+        welcome = f"""
+{self.config.get_emoji('crown')} *WELCOME TO PREMIUM BOOK BOT!* {self.config.get_emoji('crown')}
 
-📚 *Premium Book Bot* is your personal library assistant!
+👋 *Hello {user.first_name}!* I'm your personal library assistant.
 
-✨ **Features:**
-• 🔍 Smart book search
-• 📚 Thousands of books
-• 🚀 Fast downloads
-• ⭐ Premium content
-• 📊 Reading statistics
+{self.config.get_emoji('book')} *What I Offer:*
+• 🔍 *Smart Search* - Find any book instantly
+• 📚 *Vast Collection* - Thousands of books
+• 🚀 *Fast Downloads* - Direct from Telegram
+• ⭐ *Premium Content* - Exclusive books
+• 📊 *Reading Stats* - Track your journey
 
-🎯 **Get Started:**
+{self.config.get_emoji('rocket')} *Get Started:*
 1. Use `/books <query>` to search
-2. Browse `/categories`
-3. Check `/stats`
+2. Browse `/categories` by genre
+3. Check `/stats` for bot insights
+4. Use `/help` for guidance
 
-📖 Happy reading! 😊
-"""
+{self.config.get_emoji('sparkle')} *Pro Tips:*
+• Use specific keywords
+• Include author names
+• Try different categories
+• Request missing books
+
+📞 *Support:* {self.config.OWNER_USERNAME}
+        """
         
-        keyboard = KeyboardBuilder.main_menu(
-            user_id=user.id,
-            is_admin=(user.id == self.config.OWNER_ID)
-        )
+        # 🎨 KEYBOARD
+        keyboard = [
+            [
+                InlineKeyboardButton(f"{self.config.get_emoji('search')} Search Books", callback_data="search"),
+                InlineKeyboardButton(f"{self.config.get_emoji('category')} Categories", callback_data="categories")
+            ],
+            [
+                InlineKeyboardButton(f"{self.config.get_emoji('stats')} Statistics", callback_data="stats"),
+                InlineKeyboardButton(f"{self.config.get_emoji('info')} Help", callback_data="help")
+            ],
+            [
+                InlineKeyboardButton(f"{self.config.get_emoji('fire')} Popular Books", callback_data="popular"),
+                InlineKeyboardButton(f"{self.config.get_emoji('gem')} Premium", callback_data="premium")
+            ]
+        ]
         
+        # 📨 SEND WELCOME MESSAGE
         await update.message.reply_text(
-            welcome_text,
-            reply_markup=keyboard,
+            welcome,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
         
-        # Add welcome reaction
+        # ✨ ADD REACTION
         await self.reaction_manager.add_reaction(update.message, context.bot, "welcome")
         
-        logger.info(f"User started: {user.id} - {user.username}")
+        # 📊 LOG USER
+        self.db.add_user(user.id, user.username, user.first_name)
+        logger.info(f"👤 New user: {user.id} - {user.username}")
     
     async def search_books(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /books command"""
+        """🔍 Premium Search with Beautiful Results"""
         if self.config.BOT_LOCKED:
-            await update.message.reply_text("🔒 Bot is currently under maintenance. Please try again later.")
+            locked_msg = f"""
+{self.config.get_emoji('lock')} *BOT TEMPORARILY UNAVAILABLE* {self.config.get_emoji('lock')}
+
+🔧 *Maintenance in progress...*
+⏳ Please try again in a few minutes.
+
+📞 Contact {self.config.OWNER_USERNAME} for updates.
+            """
+            await update.message.reply_text(locked_msg, parse_mode='Markdown')
             return
         
         user = update.effective_user
         
+        # 📝 CHECK QUERY
         if not context.args:
-            await update.message.reply_text(
-                "🔍 *Book Search*\n\n"
-                "Please specify what you're looking for:\n"
-                "Example: `/books python programming`\n"
-                "Or: `/books author:rowling`\n\n"
-                "💡 *Tips:*\n"
-                "• Use keywords\n"
-                "• Specify author\n"
-                "• Use category names",
-                parse_mode='Markdown'
-            )
+            help_text = f"""
+{self.config.get_emoji('search')} *BOOK SEARCH GUIDE* {self.config.get_emoji('search')}
+
+📝 *How to Search:*
+`/books python programming`
+`/books harry potter`
+`/books author:stephen king`
+`/books self help`
+
+💡 *Search Tips:*
+• Be specific with keywords
+• Include author names
+• Use category names
+• Try different variations
+
+🎯 *Examples:*
+• `/books python for beginners`
+• `/books atomic habits`
+• `/books romance novels`
+• `/books business strategy`
+            """
+            await update.message.reply_text(help_text, parse_mode='Markdown')
             return
         
         query = " ".join(context.args)
         
-        # Show typing indicator
-        await ProgressIndicator.typing_indicator(update.effective_chat.id, context.bot)
+        # ⏳ SHOW TYPING
+        await context.bot.send_chat_action(update.effective_chat.id, 'typing')
         
-        # Show progress
-        progress_msg = await ProgressIndicator.show_progress(
-            update.message, context.bot, "🔍 Searching"
+        # 🎨 SEARCHING ANIMATION
+        searching_msg = await update.message.reply_text(
+            f"{self.config.get_emoji('search')} *Searching database...*\n"
+            f"🔍 Query: `{query}`\n\n"
+            f"{'▰' * 10}",
+            parse_mode='Markdown'
         )
         
-        # Search books
+        # 📊 SEARCH BOOKS
         books = self.db.search_books(query, limit=10)
         
-        # Update user stats
+        # 📈 UPDATE STATS
         self.db.update_user_stats(user.id, 'search')
         
         if not books:
-            await progress_msg.edit_text(
-                "❌ *No books found!*\n\n"
-                f"Couldn't find books for: `{query}`\n\n"
-                "💡 *Suggestions:*\n"
-                "• Check spelling\n"
-                "• Try different keywords\n"
-                "• Request the book using /request",
+            # ❌ NO RESULTS
+            no_results = f"""
+{self.config.get_emoji('warning')} *NO BOOKS FOUND* {self.config.get_emoji('warning')}
+
+🔍 *Your Search:* `{query}`
+📭 *Results:* 0 books found
+
+💡 *Suggestions:*
+1. Check spelling mistakes
+2. Try different keywords
+3. Search by author name
+4. Browse categories instead
+
+🎯 *Try These:*
+• `/books python` (instead of 'pythn')
+• `/books fiction` (broad category)
+• `/categories` (browse all)
+
+📤 *Request This Book:*
+Can't find what you need? Request it in our group!
+            """
+            
+            keyboard = [[
+                InlineKeyboardButton(
+                    f"{self.config.get_emoji('fire')} Request Book", 
+                    url=f"https://t.me/{self.config.REQUEST_GROUP.lstrip('@')}"
+                )
+            ]]
+            
+            await searching_msg.edit_text(
+                no_results,
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode='Markdown'
             )
-            await self.reaction_manager.add_reaction(update.message, context.bot, "error")
             return
         
-        # Store search results
-        search_id = f"{user.id}_{int(datetime.now().timestamp())}"
-        self.active_searches[search_id] = {
-            'books': books,
-            'query': query,
-            'page': 0
-        }
+        # ✅ FOUND RESULTS
+        found_msg = f"""
+{self.config.get_emoji('trophy')} *SEARCH RESULTS* {self.config.get_emoji('trophy')}
+
+🔍 *Query:* `{query}`
+📚 *Found:* {len(books)} books
+⏱️ *Time:* {datetime.now().strftime('%H:%M:%S')}
+
+📖 *Top Results:*
+        """
         
-        # Format results
-        text = f"🔍 *Search Results for:* `{query}`\n\n"
-        text += f"📚 *Found {len(books)} books*\n\n"
-        
+        # 📋 LIST BOOKS
         for i, book in enumerate(books[:5], 1):
-            emoji = "⭐" if book.get('is_premium') else "📖"
-            text += f"{i}. {emoji} *{book['title'][:30]}*\n"
-            text += f"   👤 {book['author'][:20]}\n\n"
+            emoji = self.config.get_emoji('star') if book.get('is_premium') else self.config.get_emoji('book')
+            found_msg += f"\n{i}. {emoji} *{book['title'][:30]}*"
+            found_msg += f"\n   👤 {book['author'][:20]} | 📦 {self._format_size(book.get('file_size', 0))}"
         
         if len(books) > 5:
-            text += f"*+ {len(books) - 5} more books...*\n"
+            found_msg += f"\n\n📄 *+ {len(books) - 5} more books...*"
         
-        # Create keyboard
-        total_pages = (len(books) + 4) // 5  # 5 books per page
-        keyboard = KeyboardBuilder.search_results(
-            results=books[:5],
-            page=0,
-            total_pages=total_pages
+        # 🎨 CREATE KEYBOARD
+        keyboard = []
+        for book in books[:5]:
+            title = book['title'][:25] + "..." if len(book['title']) > 25 else book['title']
+            emoji = self.config.get_emoji('star') if book.get('is_premium') else self.config.get_emoji('book')
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{emoji} {title}",
+                    callback_data=f"book_{book['book_id']}"
+                )
+            ])
+        
+        # 🔄 PAGINATION
+        keyboard.append([
+            InlineKeyboardButton(f"{self.config.get_emoji('prev')} Previous", callback_data="prev"),
+            InlineKeyboardButton(f"1/{max(1, len(books)//5)}", callback_data="page"),
+            InlineKeyboardButton(f"Next {self.config.get_emoji('next')}", callback_data="next")
+        ])
+        
+        keyboard.append([
+            InlineKeyboardButton(f"{self.config.get_emoji('search')} New Search", callback_data="new_search"),
+            InlineKeyboardButton(f"{self.config.get_emoji('home')} Main Menu", callback_data="main_menu")
+        ])
+        
+        # 📨 SEND RESULTS
+        await searching_msg.edit_text(
+            found_msg,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='Markdown'
         )
         
-        await progress_msg.edit_text(text, reply_markup=keyboard, parse_mode='Markdown')
-        await self.reaction_manager.add_reaction(update.message, context.bot, "search")
+        # ✨ ADD SUCCESS REACTION
+        await self.reaction_manager.add_reaction(update.message, context.bot, "success")
         
-        logger.info(f"Search: {user.id} - {query} - {len(books)} results")
+        logger.info(f"🔍 Search: {user.id} - '{query}' - {len(books)} results")
     
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command"""
+        """📊 Premium Statistics Display"""
         user = update.effective_user
         
-        # Show progress
-        progress_msg = await ProgressIndicator.show_progress(
-            update.message, context.bot, "📊 Calculating"
+        # ⏳ CALCULATING ANIMATION
+        stats_msg = await update.message.reply_text(
+            f"{self.config.get_emoji('stats')} *Calculating statistics...*\n"
+            f"{'▰' * 15}",
+            parse_mode='Markdown'
         )
         
-        # Get stats
+        # 📈 GET STATS
         stats = self.db.get_stats()
         
-        # Format stats
-        text = MessageFormatter.format_stats(stats)
+        # 🎨 FORMAT STATS
+        stats_text = f"""
+{self.config.get_emoji('trophy')} *BOT STATISTICS* {self.config.get_emoji('trophy')}
+
+📊 *Overall Statistics:*
+• 📚 Total Books: *{stats.get('total_books', 0):,}*
+• 👥 Total Users: *{stats.get('total_users', 0):,}*
+• 🔍 Total Searches: *{stats.get('total_searches', 0):,}*
+• 📥 Total Downloads: *{stats.get('total_downloads', 0):,}*
+
+📈 *Today's Activity:*
+• 🔍 Searches: *{stats.get('today_searches', 0):,}*
+• 📥 Downloads: *{stats.get('today_downloads', 0):,}*
+• 👤 New Users: *{stats.get('today_new_users', 0):,}*
+
+🏆 *Top Performers:*
+        """
         
-        await progress_msg.edit_text(text, parse_mode='Markdown')
+        # 🥇 TOP BOOKS
+        if stats.get('top_books'):
+            stats_text += f"\n{self.config.get_emoji('book')} *Popular Books:*"
+            for i, book in enumerate(stats['top_books'][:3], 1):
+                stats_text += f"\n{i}. {book['title'][:20]} ({book['downloads']} 📥)"
+        
+        # 👑 TOP USERS
+        if stats.get('top_users'):
+            stats_text += f"\n\n{self.config.get_emoji('crown')} *Active Users:*"
+            for i, user_data in enumerate(stats['top_users'][:3], 1):
+                stats_text += f"\n{i}. {user_data['username']} ({user_data['searches']}🔍/{user_data['downloads']}📥)"
+        
+        # ⏰ UPDATE TIME
+        stats_text += f"\n\n{self.config.get_emoji('time')} *Last Updated:* {datetime.now().strftime('%H:%M:%S')}"
+        stats_text += f"\n{self.config.get_emoji('calendar')} *Date:* {datetime.now().strftime('%Y-%m-%d')}"
+        
+        # 📨 SEND STATS
+        await stats_msg.edit_text(stats_text, parse_mode='Markdown')
+        
+        logger.info(f"📊 Stats viewed by: {user.id}")
     
     async def categories(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /categories command"""
-        keyboard = KeyboardBuilder.categories()
+        """🏷️ Beautiful Categories Display"""
+        categories_text = f"""
+{self.config.get_emoji('category')} *BOOK CATEGORIES* {self.config.get_emoji('category')}
+
+📚 Browse books by category:
+        """
+        
+        # 🎨 CATEGORY KEYBOARD
+        categories = [
+            ("📚 Fiction", "fiction"),
+            ("🔬 Science", "science"),
+            ("💻 Technology", "technology"),
+            ("📈 Business", "business"),
+            ("🏥 Health", "health"),
+            ("🎨 Arts", "arts"),
+            ("📖 Education", "education"),
+            ("🌍 Travel", "travel"),
+            ("🍳 Cooking", "cooking"),
+            ("🏋️ Fitness", "fitness"),
+            ("🧘 Wellness", "wellness"),
+            ("💰 Finance", "finance")
+        ]
+        
+        keyboard = []
+        row = []
+        for i, (name, callback) in enumerate(categories, 1):
+            row.append(InlineKeyboardButton(name, callback_data=f"cat_{callback}"))
+            if i % 2 == 0:
+                keyboard.append(row)
+                row = []
+        
+        if row:
+            keyboard.append(row)
+        
+        keyboard.append([
+            InlineKeyboardButton(f"{self.config.get_emoji('home')} Main Menu", callback_data="main_menu"),
+            InlineKeyboardButton(f"{self.config.get_emoji('search')} Search", callback_data="search")
+        ])
         
         await update.message.reply_text(
-            "📚 *Browse Categories*\n\n"
-            "Select a category to browse books:",
-            reply_markup=keyboard,
+            categories_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='Markdown'
         )
     
-    async def admin_panel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command"""
-        user = update.effective_user
+    async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """ℹ️ Premium Help Guide"""
+        help_text = f"""
+{self.config.get_emoji('info')} *PREMIUM BOOK BOT HELP GUIDE* {self.config.get_emoji('info')}
+
+🎯 *Basic Commands:*
+• /start - Start the bot
+• /books <query> - Search books
+• /categories - Browse categories
+• /stats - View statistics
+• /help - This help guide
+
+🔍 *Advanced Search:*
+• /books python programming
+• /books author:rowling
+• /books category:fiction
+• /books harry potter pdf
+
+👑 *Admin Commands:* (Owner only)
+• /admin - Admin panel
+• /addbook - Add new book
+• /broadcast - Send announcement
+• /lock - Lock the bot
+• /unlock - Unlock the bot
+
+🎨 *Features:*
+• Beautiful UI with emojis
+• Fast search results
+• Direct downloads
+• Reading statistics
+• Category browsing
+• Premium content
+
+💡 *Pro Tips:*
+1. Use specific keywords
+2. Include author names
+3. Try different categories
+4. Check spelling
+5. Request missing books
+
+📞 *Support:*
+For help, contact {self.config.OWNER_USERNAME}
+
+✨ *Enjoy reading!* 📚
+        """
         
-        if user.id != self.config.OWNER_ID:
-            await update.message.reply_text("❌ Admin access required!")
-            return
+        await update.message.reply_text(help_text, parse_mode='Markdown')
+    
+    async def about(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """📖 About the Bot"""
+        about_text = f"""
+{self.config.get_emoji('gem')} *ABOUT PREMIUM BOOK BOT* {self.config.get_emoji('gem')}
+
+🚀 *Version:* 2.0.0 Premium
+📅 *Launched:* 2024
+👨‍💻 *Developer:* {self.config.OWNER_USERNAME}
+🤖 *Bot:* {self.config.BOT_USERNAME}
+
+🌟 *Mission:*
+To provide instant access to knowledge through books, making learning accessible to everyone.
+
+📚 *Features:*
+• Instant book search
+• Thousands of titles
+• Beautiful interface
+• Fast downloads
+• User statistics
+
+🔧 *Technology:*
+• Python 3.11
+• Telegram Bot API
+• SQLite Database
+• Flask Web Server
+
+🌐 *Website:* Coming Soon
+📞 *Support:* {self.config.OWNER_USERNAME}
+
+✨ *Thank you for using Premium Book Bot!*
+        """
         
-        keyboard = KeyboardBuilder.admin_panel()
-        
-        await update.message.reply_text(
-            "👑 *Admin Panel*\n\n"
-            "Manage your bot and books:",
-            reply_markup=keyboard,
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text(about_text, parse_mode='Markdown')
+    
+    async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """💬 Handle regular text messages"""
+        # Random reactions
+        if random.random() < 0.4:
+            await self.reaction_manager.add_reaction(update.message, context.bot, "random")
     
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle callback queries"""
+        """🔘 Handle callback queries"""
         query = update.callback_query
         await query.answer()
         
         data = query.data
-        user = update.effective_user
         
-        logger.info(f"Callback: {user.id} - {data}")
-        
-        # Handle different callbacks
         if data == "main_menu":
-            keyboard = KeyboardBuilder.main_menu(
-                user_id=user.id,
-                is_admin=(user.id == self.config.OWNER_ID)
-            )
-            await query.edit_message_text(
-                "🏠 *Main Menu*\n\n"
-                "Select an option:",
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-        
+            await self.start(update, context)
         elif data == "search":
             await query.edit_message_text(
-                "🔍 *Search Books*\n\n"
+                f"{self.config.get_emoji('search')} *Search Books*\n\n"
                 "Send me what you're looking for!\n\n"
-                "Example:\n"
-                "• `python programming`\n"
-                "• `harry potter`\n"
-                "• `self help books`",
+                "Example: `python programming books`",
                 parse_mode='Markdown'
             )
-        
-        elif data == "categories":
-            keyboard = KeyboardBuilder.categories()
-            await query.edit_message_text(
-                "📚 *Browse Categories*",
-                reply_markup=keyboard,
-                parse_mode='Markdown'
-            )
-        
-        elif data.startswith("book_"):
-            book_id = data[5:]
-            book = self.db.get_book(book_id)
-            
-            if book:
-                text = MessageFormatter.format_book(book)
-                keyboard = KeyboardBuilder.book_details(
-                    book_id=book_id,
-                    is_owner=(user.id == self.config.OWNER_ID)
-                )
-                await query.edit_message_text(text, reply_markup=keyboard, parse_mode='Markdown')
-            else:
-                await query.answer("Book not found!", show_alert=True)
-        
-        elif data.startswith("download_"):
-            book_id = data[9:]
-            book = self.db.get_book(book_id)
-            
-            if book:
-                # Update download count
-                self.db.update_user_stats(user.id, 'download')
-                
-                # Send file
-                await context.bot.send_document(
-                    chat_id=query.message.chat_id,
-                    document=book['file_id'],
-                    caption=f"📚 *{book['title']}*\n👤 {book['author']}\n\nEnjoy reading! 📖"
-                )
-                
-                await query.answer("✅ Book sent!", show_alert=True)
-                await self.reaction_manager.add_reaction(query.message, context.bot, "download")
-            else:
-                await query.answer("❌ Book not available!", show_alert=True)
+        elif data == "help":
+            await self.help(update, context)
+        elif data == "stats":
+            await self.stats(update, context)
     
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle text messages"""
-        # Random reactions
-        await self.reaction_manager.add_reaction(update.message, context.bot, "random")
-    
-    async def add_book(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /addbook command - Admin only"""
-        user = update.effective_user
+    def _format_size(self, size_bytes):
+        """Format file size"""
+        if not size_bytes:
+            return "Unknown"
         
-        if user.id != self.config.OWNER_ID:
-            await update.message.reply_text("❌ Admin only command!")
-            return
-        
-        if not update.message.reply_to_message or not update.message.reply_to_message.document:
-            await update.message.reply_text(
-                "📤 *Add Book*\n\n"
-                "Reply to a document with:\n"
-                "`/addbook Title by Author`\n\n"
-                "Example:\n"
-                "Reply to PDF → `/addbook Python Guide by John Doe`",
-                parse_mode='Markdown'
-            )
-            return
-        
-        reply = update.message.reply_to_message
-        document = reply.document
-        
-        # Extract metadata
-        title = document.file_name or "Unknown"
-        
-        # Parse command arguments for title and author
-        args = context.args
-        if args:
-            # Try to parse "Title by Author" format
-            import re
-            full_text = " ".join(args)
-            match = re.match(r'(.+?)\s+by\s+(.+)', full_text, re.IGNORECASE)
-            if match:
-                title = match.group(1).strip()
-                author = match.group(2).strip()
-            else:
-                title = full_text
-                author = "Unknown"
-        else:
-            author = "Unknown"
-        
-        # Add to database
-        book_data = {
-            'title': title,
-            'author': author,
-            'file_id': document.file_id,
-            'file_type': document.mime_type or 'document',
-            'file_size': document.file_size,
-            'added_by': user.id
-        }
-        
-        if self.db.add_book(book_data):
-            await update.message.reply_text(f"✅ Book added: *{title}*", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❌ Failed to add book (might already exist)")
-    
-    async def broadcast(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /broadcast command - Admin only"""
-        user = update.effective_user
-        
-        if user.id != self.config.OWNER_ID:
-            await update.message.reply_text("❌ Admin only command!")
-            return
-        
-        if not context.args:
-            await update.message.reply_text("Usage: `/broadcast Your message here`", parse_mode='Markdown')
-            return
-        
-        message = " ".join(context.args)
-        
-        # Get all users
-        # Implementation would go here
-        await update.message.reply_text("📢 Broadcast feature coming soon!")
-    
-    async def lock_bot(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Lock the bot - Admin only"""
-        user = update.effective_user
-        
-        if user.id != self.config.OWNER_ID:
-            await update.message.reply_text("❌ Admin only command!")
-            return
-        
-        self.config.BOT_LOCKED = True
-        await update.message.reply_text("🔒 Bot locked successfully!")
-    
-    async def unlock_bot(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Unlock the bot - Admin only"""
-        user = update.effective_user
-        
-        if user.id != self.config.OWNER_ID:
-            await update.message.reply_text("❌ Admin only command!")
-            return
-        
-        self.config.BOT_LOCKED = False
-        await update.message.reply_text("🔓 Bot unlocked successfully!")
-    
-    async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command"""
-        help_text = """
-📖 *Premium Book Bot Help Guide*
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} TB"
 
-🎯 *Basic Commands:*
-• `/start` - Start the bot
-• `/books <query>` - Search for books
-• `/categories` - Browse by category
-• `/stats` - View bot statistics
-• `/help` - This help message
-
-🔍 *Search Examples:*
-• `/books python programming`
-• `/books harry potter`
-• `/books self help`
-• `/books author:rowling`
-
-👑 *Admin Commands:* (Owner only)
-• `/admin` - Admin panel
-• `/addbook` - Add new book
-• `/broadcast` - Send announcement
-• `/lock` - Lock the bot
-• `/unlock` - Unlock the bot
-
-📱 *Interactive Features:*
-• Inline keyboards for navigation
-• Book previews with details
-• Download with one click
-• Reading statistics
-
-💡 *Tips:*
-• Use specific keywords
-• Check spelling
-• Use author names
-• Browse categories for inspiration
-
-📞 *Support:* Contact @{owner} for help
-""".format(owner=self.config.OWNER_USERNAME or "the admin")
-        
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+# 🎯 SETUP FUNCTION
+def setup_handlers(app, db, reaction_manager):
+    """Setup all handlers"""
+    handlers = PremiumHandlers(db, reaction_manager)
+    handlers.register(app)
