@@ -1,21 +1,74 @@
 #!/usr/bin/env python3
 """
-Web server for health checks and monitoring
+Web server for health checks and monitoring - FIXED VERSION
 """
 
 from flask import Flask, jsonify, render_template_string
 import logging
-from threading import Thread
 import os
 import sys
+import time
+from datetime import datetime
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import Config
+try:
+    from config import Config
+    config = Config()
+except ImportError as e:
+    print(f"Config import error: {e}")
+    # Create a dummy config
+    class DummyConfig:
+        BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+        BOT_USERNAME = os.getenv("BOT_USERNAME", "")
+        OWNER_ID = int(os.getenv("OWNER_ID", 0))
+        DATABASE_CHANNEL_ID = int(os.getenv("DATABASE_CHANNEL_ID", 0))
+        LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", 0))
+        REQUEST_GROUP_ID = os.getenv("REQUEST_GROUP_ID", "")
+        FORCE_SUB_CHANNEL = os.getenv("FORCE_SUB_CHANNEL", "")
+        BOT_LOCKED = False
+        DM_ENABLED = False
+        MAINTENANCE = False
+        DB_PATH = "/tmp/book_bot.db"
+        HOST = "0.0.0.0"
+        PORT = int(os.getenv("PORT", 10000))
+    config = DummyConfig()
 
 app = Flask(__name__)
-config = Config()
+
+# Store startup time for uptime calculation
+startup_time = time.time()
+
+def get_uptime():
+    """Calculate uptime in human readable format"""
+    uptime_seconds = int(time.time() - startup_time)
+    
+    days = uptime_seconds // (24 * 3600)
+    uptime_seconds %= (24 * 3600)
+    hours = uptime_seconds // 3600
+    uptime_seconds %= 3600
+    minutes = uptime_seconds // 60
+    seconds = uptime_seconds % 60
+    
+    if days > 0:
+        return f"{days}d {hours}h {minutes}m"
+    elif hours > 0:
+        return f"{hours}h {minutes}m {seconds}s"
+    elif minutes > 0:
+        return f"{minutes}m {seconds}s"
+    else:
+        return f"{seconds}s"
+
+def get_memory_usage():
+    """Get memory usage percentage"""
+    try:
+        import psutil
+        return round(psutil.virtual_memory().percent, 1)
+    except ImportError:
+        return "N/A"
+    except:
+        return "Error"
 
 # HTML template for status page
 STATUS_TEMPLATE = """
@@ -218,53 +271,21 @@ STATUS_TEMPLATE = """
 </html>
 """
 
-# Store startup time for uptime calculation
-import time
-startup_time = time.time()
-
-def get_uptime():
-    """Calculate uptime in human readable format"""
-    uptime_seconds = int(time.time() - startup_time)
-    
-    days = uptime_seconds // (24 * 3600)
-    uptime_seconds %= (24 * 3600)
-    hours = uptime_seconds // 3600
-    uptime_seconds %= 3600
-    minutes = uptime_seconds // 60
-    seconds = uptime_seconds % 60
-    
-    if days > 0:
-        return f"{days}d {hours}h {minutes}m"
-    elif hours > 0:
-        return f"{hours}h {minutes}m {seconds}s"
-    elif minutes > 0:
-        return f"{minutes}m {seconds}s"
-    else:
-        return f"{seconds}s"
-
-def get_memory_usage():
-    """Get memory usage percentage"""
-    try:
-        import psutil
-        return round(psutil.virtual_memory().percent, 1)
-    except:
-        return "N/A"
-
 @app.route('/')
 def index():
     """Main status page"""
-    from datetime import datetime
-    
-    return render_template_string(STATUS_TEMPLATE, {
-        'bot_online': bool(config.BOT_TOKEN),
-        'uptime': get_uptime(),
-        'memory_usage': get_memory_usage(),
-        'port': config.PORT,
-        'bot_token': bool(config.BOT_TOKEN),
-        'db_path': config.DB_PATH,
-        'owner_id': config.OWNER_ID if config.OWNER_ID else "Not set",
-        'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    })
+    # FIXED: render_template_string now uses keyword arguments
+    return render_template_string(
+        STATUS_TEMPLATE,
+        bot_online=bool(config.BOT_TOKEN),
+        uptime=get_uptime(),
+        memory_usage=get_memory_usage(),
+        port=config.PORT,
+        bot_token=bool(config.BOT_TOKEN),
+        db_path=config.DB_PATH,
+        owner_id=config.OWNER_ID if config.OWNER_ID else "Not set",
+        current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    )
 
 @app.route('/health')
 def health():
@@ -275,7 +296,8 @@ def health():
         "service": "telegram-book-bot",
         "version": "1.0.0",
         "bot_token_configured": bool(config.BOT_TOKEN),
-        "uptime": get_uptime()
+        "uptime": get_uptime(),
+        "memory_usage": get_memory_usage()
     }
     
     status_code = 200 if config.BOT_TOKEN else 503
@@ -294,12 +316,14 @@ def stats():
         "system": {
             "uptime": get_uptime(),
             "memory_usage": get_memory_usage(),
-            "port": config.PORT
+            "port": config.PORT,
+            "host": config.HOST
         },
         "channels": {
             "database_channel": config.DATABASE_CHANNEL_ID if config.DATABASE_CHANNEL_ID else "Not set",
             "log_channel": config.LOG_CHANNEL_ID if config.LOG_CHANNEL_ID else "Not set",
-            "request_group": config.REQUEST_GROUP_ID or "Not set"
+            "request_group": config.REQUEST_GROUP_ID or "Not set",
+            "force_sub_channel": config.FORCE_SUB_CHANNEL or "Not set"
         }
     }
     return jsonify(stats_data)
@@ -329,16 +353,6 @@ def config_info():
     }
     return jsonify(safe_config)
 
-def start_server():
-    """Start the Flask server"""
-    port = config.PORT
-    host = config.HOST
-    
-    logging.info(f"🌐 Starting web server on {host}:{port}")
-    
-    # Run without reloader in production
-    app.run(host=host, port=port, debug=False, use_reloader=False)
-
 if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(
@@ -346,4 +360,13 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    start_server()
+    port = config.PORT
+    host = config.HOST
+    
+    print(f"🚀 Starting Premium Book Bot Web Server")
+    print(f"🌐 Server: {host}:{port}")
+    print(f"🔧 Bot Token: {'✅ Set' if config.BOT_TOKEN else '❌ Not set'}")
+    print(f"👑 Owner ID: {config.OWNER_ID if config.OWNER_ID else 'Not set'}")
+    print(f"📊 Health Check: http://{host}:{port}/health")
+    
+    app.run(host=host, port=port, debug=False, use_reloader=False)
