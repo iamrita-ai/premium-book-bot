@@ -1,4 +1,3 @@
 python-telegram-bot[job-queue]==20.7
-Flask==2.3.3  # Changed from 3.0.0 to avoid compatibility issues
+Flask==2.3.3
 python-dotenv==1.0.0
-psutil==5.9.6
