@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Database setup script - Simplified version
+SETUP_DATABASE.PY - One-time database setup
+Run this manually or during first deployment
 """
 
 import os
@@ -15,9 +16,11 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 DATABASE_NAME = os.getenv("DATABASE_NAME", "book_bot")
 
 def setup_database():
-    """Create database indexes"""
+    """Create database indexes and collections"""
     
-    print("📦 Setting up Book Bot database...")
+    print("=" * 50)
+    print("📦 DATABASE SETUP FOR BOOK BOT")
+    print("=" * 50)
     
     try:
         # Connect to MongoDB
@@ -36,28 +39,32 @@ def setup_database():
         if 'books' not in collections:
             db.create_collection('books')
             print("✅ Created 'books' collection")
-        
-        # Create text index for books
-        db.books.create_index([("title", "text"), ("author", "text"), ("category", "text")])
-        db.books.create_index([("id", 1)], unique=True)
-        print("✅ Created indexes for 'books'")
+        else:
+            print("📚 'books' collection already exists")
         
         # Users collection
         if 'users' not in collections:
             db.create_collection('users')
             print("✅ Created 'users' collection")
-        
-        db.users.create_index([("id", 1)], unique=True)
-        print("✅ Created indexes for 'users'")
+        else:
+            print("👥 'users' collection already exists")
         
         # Stats collection
         if 'stats' not in collections:
             db.create_collection('stats')
             print("✅ Created 'stats' collection")
+        else:
+            print("📈 'stats' collection already exists")
         
+        # Create indexes
+        db.books.create_index([("title", "text"), ("author", "text"), ("category", "text")])
+        db.books.create_index([("id", 1)], unique=True)
+        db.users.create_index([("id", 1)], unique=True)
         db.stats.create_index([("key", 1)], unique=True)
         
-        # Insert default stats
+        print("✅ Created indexes")
+        
+        # Add default stats
         default_stats = [
             {"key": "total_books", "value": 0},
             {"key": "total_users", "value": 0},
@@ -75,22 +82,34 @@ def setup_database():
         
         print("✅ Added default statistics")
         
-        print(f"\n🎉 Database setup completed successfully!")
-        print(f"📊 Database: {DATABASE_NAME}")
-        print(f"📁 Collections: books, users, stats")
+        # Show summary
+        print("\n" + "=" * 50)
+        print("📊 DATABASE SUMMARY")
+        print("=" * 50)
         
-        # Show sample data
-        print(f"\n📚 Sample stats:")
+        total_books = db.books.count_documents({})
+        total_users = db.users.count_documents({})
+        
+        print(f"📚 Total Books: {total_books}")
+        print(f"👥 Total Users: {total_users}")
+        
+        # Show sample stats
+        print("\n📈 Current Statistics:")
         for stat in default_stats:
             doc = db.stats.find_one({"key": stat["key"]})
-            print(f"  • {stat['key']}: {doc.get('value', 0)}")
+            value = doc.get("value", 0) if doc else 0
+            print(f"  • {stat['key']}: {value}")
+        
+        print("\n" + "=" * 50)
+        print("🎉 DATABASE SETUP COMPLETED SUCCESSFULLY!")
+        print("=" * 50)
         
     except ConnectionFailure as e:
         print(f"❌ MongoDB connection failed: {e}")
-        print("\n💡 Please check:")
-        print("1. MONGO_URI in .env file")
-        print("2. MongoDB server is running")
-        print("3. Network connectivity")
+        print("\n💡 TROUBLESHOOTING:")
+        print("1. Check MONGO_URI in .env file")
+        print("2. Ensure MongoDB server is running")
+        print("3. For MongoDB Atlas, check network access")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Setup failed: {e}")
